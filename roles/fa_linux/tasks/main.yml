@@ -1,0 +1,91 @@
+---
+# tasks file for fa_linux
+
+### Update all packages related to security
+
+- name: Upgrade all security related packages
+  yum:
+    name: '*'
+    state: latest
+    security: true
+
+### Standard packages
+
+- name: Ensure common packages present
+  yum:
+    name:
+      - acl
+      - bash-completion
+      - dos2unix
+      - htop
+      - jq
+      - mlocate
+      - screen
+      - unzip
+      - wget
+      - yum-utils
+    state: present
+    enablerepo: epel
+
+- name: Ensure certain packages absent
+  yum:
+    name:
+      - amazon-ssm-agent
+      # aws-cli package is broken with the updated pip verisons 2018/09/26
+      # See: https://github.com/aws/aws-cli/issues/3542
+      - aws-cli
+    state: absent
+
+### Awscli, Boto and Boto3 required for some Ansible AWS modules
+- name: Ensure aws-cli boto and boto3 present
+  pip:
+    name:
+      - awscli
+      - boto
+      - boto3
+      - httpie
+    state: present
+
+# Configure NTP
+
+- name: Install NTP
+  yum:
+    name: ntp
+    state: present
+
+- name: Ensure NTP service running and will start on boot
+  service:
+    name: ntpd
+    state: started
+    enabled: true
+
+- name: Turn off UseDNS
+  replace:
+    dest: /etc/ssh/sshd_config
+    regexp: '^#UseDNS yes$'
+    replace: 'UseDNS no'
+    backup: false
+
+- name: Ensure SSH service running and will start on boot
+  service:
+    name: sshd
+    state: started
+    enabled: true
+
+- name: Ensure that strong Key Exchange algorithms are used
+  lineinfile:
+    regexp: "^KexAlgorithms\\s+"
+    line: "KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,\
+          diffie-hellman-group18-sha512,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256"
+    dest: "/etc/ssh/sshd_config"
+
+# Yum config
+
+- name: Prevent certain packages from being installed via Yum (see README.md for detail)
+  lineinfile:
+    insertafter: "^retries="
+    line: "exclude=aws-cli* *boto*"
+    path: /etc/yum.conf
+    regexp: "exclude=aws-cli* *boto*"
+    state: present
+

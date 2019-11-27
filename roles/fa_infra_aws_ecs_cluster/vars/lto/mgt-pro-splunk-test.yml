@@ -1,0 +1,80 @@
+---
+asg_desired_size: 1
+asg_min_size: 1
+asg_max_size: 1
+asg_vpc_zone_identifier: ['subnet-2aae1a73']
+# Reduce this instance_type for testing.
+instance_type: c5.large
+sec_group_instance_rules:
+  - proto: tcp
+    from_port: 8000
+    to_port: 8000
+    cidr_ip: "{{ vpc_fact_cidr_block }}"
+  - proto: tcp
+    from_port: 8088
+    to_port: 8089
+    cidr_ip: "{{ vpc_fact_cidr_block }}"
+  - proto: tcp
+    from_port: 9997
+    to_port: 9997
+    cidr_ip: "{{ vpc_fact_cidr_block }}"
+  - proto: tcp
+    from_port: 1471
+    to_port: 1471
+    # STG subnet where the ASA is running
+    cidr_ip: "10.213.36.0/24"
+
+extra_tags:
+  - EBSToUse: "{{ ebs_to_use }}"  # EBS vols to use, passed in as fact from fa_infra_aws_ec2_vol
+  - EniToUse: "{{ aws_accounts_new.qlmgt.splunk_test_eni_to_use }}"
+
+user_data: |
+  #!/bin/bash
+
+  echo "ECS_CLUSTER=cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}" >> /etc/ecs/ecs.config
+  echo "ECS_AVAILABLE_LOGGING_DRIVERS=[\"splunk\",\"syslog\",\"fluentd\",\"json-file\"]" >> /etc/ecs/ecs.config
+  echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
+
+  export PATH=$PATH:/usr/local/bin
+  export AWS_DEFAULT_REGION="ap-southeast-2"
+
+  # Get the current instance id
+  instance_id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+  # Get the instance tags
+  describe_tags_result=$(aws ec2 describe-tags --filters "Name=resource-id,Values=${instance_id}")
+
+  # Get values of specific tags
+  ecs_cluster_name=$(echo ${describe_tags_result} | jq -r '.Tags[] | select(.Key == "EcsClusterName") | .Value')
+  ENV=$(echo ${describe_tags_result} | jq -r '.Tags[] | select(.Key == "Env") | .Value')
+
+  # check the disks
+  e2fsck -y -f /dev/sdf
+  e2fsck -y -f /dev/sdg
+
+  # resize the volumes, as we maybe restoring snapshots
+  resize2fs /dev/sdf
+  resize2fs /dev/sdg
+
+  # Make the directories for mounting
+  mkdir -p {{ ebs_mount_point.splunk_etc }}
+  mkdir -p {{ ebs_mount_point.splunk_var }}
+
+  # Add ebs volumes to fstab
+  echo "/dev/sdf {{ ebs_mount_point.splunk_etc }} auto defaults 0 0 " >> /etc/fstab
+  echo "/dev/sdg {{ ebs_mount_point.splunk_var }} auto defaults 0 0 " >> /etc/fstab
+
+  # Mount all
+  mount -a
+
+  # optimize for splunk, see TECHOPS-2263
+  echo never > /sys/kernel/mm/transparent_hugepage/enabled
+  echo never > /sys/kernel/mm/transparent_hugepage/defrag
+
+  echo '*                soft    nofile          8192' >> /etc/security/limits.conf
+  echo '*                hard    nofile          8192' >> /etc/security/limits.conf
+
+  # Attach the ENI
+  /bin/bash /opt/aws-attach-eni/aws_attach_eni.sh
+  # add a routes on the second ENI for ASAv logging from STG for testing
+  ip route add 10.213.36.0/24 via 10.119.5.1 dev eth1

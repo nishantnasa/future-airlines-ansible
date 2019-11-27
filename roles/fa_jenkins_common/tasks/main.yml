@@ -1,0 +1,144 @@
+---
+# tasks file for fa_jenkins-common
+
+### Required pacakges
+
+- name: Setup npm repository
+  shell: curl --silent --location https://rpm.nodesource.com/setup_8.x | sudo bash -
+
+- name: Required packages
+  yum:
+    name:
+      - java-1.8.0-openjdk-devel
+      - java-1.7.0-openjdk-devel
+      - java-1.6.0-openjdk-devel
+      - ant
+      - ant-jsch
+      - ant-junit
+      - git
+      - gitflow
+      - rpm-build
+      - automake
+      - make
+      - fuse-devel
+      - gcc-c++
+      - libcurl-devel
+      - libxml2-devel
+      - openssl-devel
+      - docker
+      - python36-pip
+    state: latest
+    enablerepo: epel
+
+### Node / NPM
+
+- name: Nodejs package
+  yum:
+    name: nodejs
+    state: latest
+    enablerepo: nodesource
+
+- name: Install required global npm packages
+  npm:
+    name: "{{ item }}"
+    global: true
+  with_items:
+    - yarn
+    - serverless
+    - newman
+
+
+# The jenkins user is used to access the git repository
+# The jenkins user needs to be a member of the docker group
+
+- name: Jenkins user
+  user:
+    name: jenkins
+    shell: /bin/bash
+    state: present
+    groups: docker
+
+### Maven
+
+- name: Create .m2 directory
+  file:
+    path: /home/jenkins/.m2
+    owner: jenkins
+    group: jenkins
+    state: directory
+
+- name: Copy settings.xml
+  copy:
+    src: m2/settings.xml
+    dest: /home/jenkins/.m2/settings.xml
+    owner: jenkins
+    group: jenkins
+    mode: 0644
+
+- name: Copy settings-security.xml (retrieve cred from credstash)
+  template:
+    src: m2/settings-security.xml
+    dest: /home/jenkins/.m2/settings-security.xml
+    owner: jenkins
+    group: jenkins
+    mode: 0600
+
+### Copy cron job file
+
+- name: Copy jenkins cron
+  copy:
+    src: cron.d/jenkins
+    dest: /etc/cron.d
+    mode: 0644
+
+### Git config for jenkins user
+
+- name: Configure git username
+  become_user: jenkins
+  git_config:
+    scope: global
+    name: user.name
+    value: "Jenkins CI"
+
+- name: Configure git email
+  become_user: jenkins
+  git_config:
+    scope: global
+    name: user.email
+    value: "noreply@jenkins.future-airlines.net"
+
+### Change soapui to be owned by jenkins
+
+- name: Give soapui permission to jenkins
+  file:
+    path: /opt/soapui
+    owner: jenkins
+    group: jenkins
+    recurse: true
+    follow: true
+    state: directory
+
+- name: symlink tools.jar from jdk to jre
+  file:
+    src: /usr/lib/jvm/java-1.8.0-openjdk/lib/tools.jar
+    dest: /usr/lib/jvm/java-1.8.0-openjdk/jre/lib/tools.jar
+    owner: root
+    group: root
+    state: link
+
+- name: install docker-compose
+  command: sudo curl -L https://github.com/docker/compose/releases/download/1.21.2/docker-compose-Linux-x86_64
+           -o /usr/bin/docker-compose
+
+- name: chmod docker-compose
+  file:
+    path: /usr/bin/docker-compose
+    mode: 0755
+
+- name: symlink for pip3
+  file:
+    src: /usr/bin/pip-3.6
+    dest: /usr/bin/pip3
+    owner: root
+    group: root
+    state: link

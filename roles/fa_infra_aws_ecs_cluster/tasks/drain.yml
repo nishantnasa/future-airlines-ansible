@@ -1,0 +1,33 @@
+---
+# This playbook is used to set ECS hosts in a cluster to DRAINING status
+
+- name: Get ECS cluster facts
+  ecs_cluster_facts:
+    region: "{{ aws_region }}"
+    clusters:
+      - "{{ cluster_name }}"
+  register: ecs_cluster_facts
+
+- name: Drain half of the cluster - batches of 10 because AWS API only supports 10 instances at a time
+  ecs_instance:
+    region: "{{ aws_region }}"
+    cluster: "{{ cluster_name }}"
+    container_instances: "{{ item | map(attribute='container_instance_arn') | list }}"
+    status: DRAINING
+  with_items:
+    - "{{ ecs_cluster_facts.clusters[0].instances | selectattr('status', 'equalto', 'ACTIVE') |
+          ecs_instance_filter('ecs.ami-id', ami_id, 'notequalto', 50) }}"
+
+- name: Wait 30 minutes
+  pause:
+    minutes: 30
+
+- name: Drain the rest of the cluster
+  ecs_instance:
+    region: "{{ aws_region }}"
+    cluster: "{{ cluster_name }}"
+    container_instances: "{{ item | map(attribute='container_instance_arn') | list }}"
+    status: DRAINING
+  with_items:
+    - "{{ ecs_cluster_facts.clusters[0].instances | selectattr('status', 'equalto', 'ACTIVE') |
+          ecs_instance_filter('ecs.ami-id', ami_id, 'notequalto') }}"

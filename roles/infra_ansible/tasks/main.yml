@@ -1,0 +1,6 @@
+---
+# tasks file for fa_infra_ansible
+
+- include_tasks: "{{ create_or_destroy }}.yml"
+  tags:
+    - always

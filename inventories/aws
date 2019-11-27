@@ -6,7 +6,7 @@
 localhost-aws-account-fadev
 
 [aws-account-fadev:vars]
-ansible_python_interpreter=/usr/bin/python3
+ansible_python_interpreter=/usr/bin/python
 
 [local]
 localhost

@@ -1,0 +1,138 @@
+---
+# tasks file for fa_infra_ansible creation
+
+### Get vars
+
+- name: Get vars for environment
+  include:
+    ../../../get_env_vars_channel.yml
+  tags:
+    - always
+
+### IAM role and policy
+
+- name: IAM role
+  iam_role:
+    name: "{{ type_prefix }}-{{ type }}"
+    assume_role_policy_document: "{{ lookup('file', 'iam_role_trust_policy_doc.json') }}"
+    managed_policy:
+      - "arn:aws:iam::aws:policy/PowerUserAccess"
+    state: present
+  register: iam
+  tags:
+    - iam
+
+- name: IAM policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam.iam_role.role_name }}"
+    policy_name: "policy-{{ type_prefix }}-{{ type }}"
+    policy_json: "{{ lookup('file', 'iam_policy.json') }}"
+    state: present
+  tags:
+    - iam
+
+### Security Group
+
+- name: Get security group facts for Jenkins
+  ec2_group_facts:
+    filters:
+      group_name: "sec-lto-mgt-jenkins"
+  register: jenkins_sg_facts
+  tags:
+    - sec_group
+
+# lto services should be able to connect ansible
+- name: Get security group facts for lto-general ecscluster
+  ec2_group_facts:
+    filters:
+      group_name: "sec-lto-mgt-pro-ecscluster-pro-general"
+  register: lto_general_cluster_sg_facts
+  tags:
+    - sec_group
+
+- name: Get security group facts for lto-ansible-trigger lambda
+  ec2_group_facts:
+    filters:
+      group_name: "sec-lto-mgt-ansible-trigger"
+  register: lto_ansible_trigger_sg_facts
+  tags:
+    - sec_group
+
+- name: Security group for ec2 instance(s)
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-{{ type_prefix }}-{{ type }}"
+    description: "Security group for {{ type }} ec2 instances"
+    vpc_id: "{{ vpc_fact }}"
+    purge_rules: true
+    # Allow lto-mgt NAT Gateways
+    rules:
+      "{{
+        [ {'proto':'tcp', 'from_port':22, 'to_port': 22, 'group_ids': [[jenkins_sg_facts.security_groups[0].group_id]],
+            'rule_desc': 'sec-lto-mgt-jenkins security group'},
+          {'proto':'tcp', 'from_port':22, 'to_port': 22,
+           'group_ids': [[lto_general_cluster_sg_facts.security_groups[0].group_id]],
+           'rule_desc': 'sec-lto-mgt-pro-ecscluster-pro-general security group'},
+          {'proto':'tcp', 'from_port':22, 'to_port': 22,
+           'group_ids': [[lto_ansible_trigger_sg_facts.security_groups[0].group_id]],
+           'rule_desc': 'sec-lto-mgt-ansible-trigger security group'}
+        ] | sec_group_helper
+      }}"
+    tags:
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Name: "sec-{{ type_prefix }}-{{ type }}"
+  register: sec_group_instance
+  tags:
+    - sec_group
+
+### SSH key pair
+
+- name: Create AWS key pair
+  ec2_key:
+    region: "{{ aws_region }}"
+    name: "{{ aws_key_pair_name }}"
+    state: present
+
+### Auto-Scaling launch configuration
+
+- name: Launch configuration
+  ec2_lc:
+    region: "{{ aws_region }}"
+    name: "lc-{{ type_prefix }}-{{ type }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    assign_public_ip: false
+    image_id: "{{ ami_id }}"
+    key_name: "{{ aws_key_pair_name }}"
+    security_groups:
+      - "{{ sec_group_instance.group_id }}"
+      - "sec-{{ type_prefix }}-restricted-techops"
+    instance_type: "{{ instance_type }}"
+    instance_profile_name: "{{ type_prefix }}-{{ type }}"
+    volumes:
+      - device_name: /dev/xvda
+        volume_size: 50
+        device_type: gp2
+        delete_on_termination: true
+  register: lc
+  tags:
+    - asg
+
+### Auto-Scaling group
+
+- name: Auto-Scaling group
+  ec2_asg:
+    region: "{{ aws_region }}"
+    name: "asg-{{ type_prefix }}-{{ type }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    launch_config_name: "{{ lc.name }}"
+    desired_capacity: "{{ asg_desired_size }}"
+    min_size: "{{ asg_min_size }}"
+    max_size: "{{ asg_max_size }}"
+    vpc_zone_identifier: "{{ vpc_subnet_protected_fact.subnets | map(attribute='id') | list }}"
+    tags:
+      - Channel: "{{ channel }}"
+        Env: "{{ env }}"
+        Type: "{{ type }}"
+  register: asg
+  tags:
+    - asg

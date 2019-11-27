@@ -1,0 +1,12 @@
+# Delete files older than 30 days in Maven repo
+0 2 * * * jenkins /bin/find /home/jenkins/.m2/repository/au/com/future-airlines/ -type d -mtime +30 -exec rm -rf {} \;
+
+# Authorize Jenkins for Amazon ECR
+0 */10 * * * jenkins eval "$(aws ecr get-login --no-include-email --region ap-southeast-2)"
+
+# Clean up Docker
+30 3 * * * root docker rm $(docker ps -q -f status=exited)
+
+35 3 * * * root docker volume rm $(docker volume ls -qf dangling=true)
+
+40 3 * * * root docker rmi $(docker images --filter "dangling=true" -q --no-trunc)

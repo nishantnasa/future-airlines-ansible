@@ -1,0 +1,7 @@
+---
+# defaults file for maven
+
+# Name of the Maven archive download
+#  -- http://apache.mirror.digitalpacific.com.au/maven/maven-3/3.0.5/binaries/xxxxxxxxx.tar.gz <-- the xxxxxxx bit!
+maven_archive_name: apache-maven-3.3.9-bin
+maven_version: 3.3.9

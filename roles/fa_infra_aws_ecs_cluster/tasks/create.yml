@@ -1,0 +1,292 @@
+---
+# tasks file for fa_infra_aws_ecs_cluster creation
+
+### Vars
+
+- fail:
+    msg: New clusters can not be deployed in this account
+  when: aws_account_name == "intelligent-pathways-qantas-lsl"
+
+- name: Get AWS vars
+  include_tasks:
+    ../../../get_env_vars_channel.yml
+  when: aws_account_name != "intelligent-pathways-qantas-lsl"
+  tags:
+    - always
+
+- name: manage ec2_vols
+  include_role:
+    name: fa_infra_aws_ec2_vol
+  when: create_or_destroy == "create"
+
+- name: Get VPC facts for old VPC
+  local_action:
+    module: ec2_vpc_net_facts
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Env": "{{ env }}"
+      "tag:Channel": old
+  register: vpc_old_fact
+  tags:
+    - always
+
+- name: Include tasks to get VPC facts used for qlstg nginx-integration security group
+  include_tasks: gather_cross_account_vpc_facts.yml
+  when:
+    - aws_account_name == 'qlstg'
+    - cluster_id == 'nginx'
+    - type_prefix == 'loy-int'
+  tags:
+    - always
+
+- name: Include tasks to get VPC facts used for nginx-integration security group (either qlstg or qlprd)
+  include_tasks: gather_account_vpc_facts.yml
+  when:
+    - cluster_id == 'nginx'
+    - type_prefix == 'loy-int'
+  tags:
+    - always
+
+### Use public IP when public subnet OR IP account
+
+- name:
+  set_fact:
+    use_public_ip: true
+  when: deploy_in_subnet == "pub"
+  tags:
+    - always
+
+###
+#
+# ECS clusters can be deployed in public, protected or private subnets.
+# We append pub-, pro- or pri- to the type to reflect this
+# The user must specify which subnet type we are deploying in to
+#
+###
+
+- name: Prepend subnet type to app type
+  set_fact:
+    type: "{{ deploy_in_subnet }}-{{ type }}"
+  tags:
+    - always
+
+- name: Set VPC subnets to deploy to
+  set_fact:
+    vpc_subnets_for_asg: "{{ vpc_subnet_public_fact.subnets | map(attribute='id') | list }}"
+  when: deploy_in_subnet == "pub"
+  tags:
+    - always
+
+- name: Set VPC subnets to deploy to
+  set_fact:
+    vpc_subnets_for_asg: "{{ vpc_subnet_protected_fact.subnets | map(attribute='id') | list }}"
+  when: deploy_in_subnet == "pro"
+  tags:
+    - always
+
+- name: Set VPC subnets to deploy to
+  set_fact:
+    vpc_subnets_for_asg: "{{ vpc_subnet_private_fact.subnets | map(attribute='id') | list }}"
+  when: deploy_in_subnet == "pri"
+  tags:
+    - always
+
+# Get ECS cluster specific vars
+
+- name: Get vars for specific clusters
+  include_vars:
+    "{{ item }}"
+  with_first_found:
+    - files:
+        - "{{ channel }}/{{ aws_account_name }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}.yml"
+        - "{{ channel }}/{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}.yml"
+        - "{{ channel }}/{{ deploy_in_subnet }}-{{ cluster_id }}.yml"
+        - "{{ channel }}/{{ cluster_id }}.yml"
+        - "{{ channel }}/{{ env }}.yml"
+        - "{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}.yml"
+        - "{{ deploy_in_subnet }}-{{ cluster_id }}.yml"
+        - "{{ cluster_id }}.yml"
+        - "{{ env }}.yml"
+      skip: true
+  tags:
+    - always
+
+- name: Get VPC facts for lsl VPC
+  local_action:
+    module: ec2_vpc_net_facts
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Env": "{{ env }}"
+      "tag:Channel": lsl
+  register: vpc_lsl_fact
+  when: require_lsl_vpc_facts
+  tags:
+    - always
+
+### IAM role and policy
+
+- name: IAM role
+  iam_role:
+    name: "{{ infrastructure_name }}"
+    assume_role_policy_document: "{{ lookup('file', 'iam_role_trust_policy_doc.json') }}"
+    managed_policy:
+      - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      - arn:aws:iam::aws:policy/AmazonEC2ContainerServiceFullAccess
+    state: present
+  register: iam_role
+  tags:
+    - iam
+
+- name: Generic IAM Policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam_role.iam_role.role_name }}"
+    policy_name: "policy-{{ infrastructure_name }}"
+    state: present
+    policy_json: "{{ lookup('template', '../templates/iam_policy.json.j2') }}"
+  tags:
+    - iam
+
+- name: Cluster specific IAM Policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam_role.iam_role.role_name }}"
+    policy_name: "policy-cluster-specific-{{ infrastructure_name }}"
+    state: present
+    policy_json: "{{ lookup('template', item) }}"
+  with_first_found:
+    - files:
+        - "../templates/{{ channel }}/{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}-iam_policy.json.j2"
+        - "../templates/{{ channel }}/{{ deploy_in_subnet }}-{{ cluster_id }}-iam_policy.json.j2"
+        - "../templates/{{ channel }}/{{ cluster_id }}-iam_policy.json.j2"
+      skip: true
+  tags:
+    - iam
+
+- name: Wait 15 seconds for IAM to propagate
+  pause:
+    seconds: 15
+  when: iam_role.changed
+  tags:
+    - iam
+
+### Security Group
+
+# This task ensures to get NAT Gateway IPs management account and use it on ECS Instance. -TECHOPS-3181
+
+- name: Assume role for qlmgt account so we can get IPs of NAT Gateways
+  sts_assume_role:
+    region: "{{ aws_region }}"
+    role_arn: "arn:aws:iam::113053657575:role/assumed-ansible"
+    role_session_name: qlmgt_nat_assumed_role
+  register: qlmgt_nat_assumed_role
+  when: use_sts
+  tags:
+    - always
+
+# Gather Facts of NAT Gateways from qlmgt account
+
+- name: Get nat gateways with these specific filters
+  ec2_vpc_nat_gateway_facts:
+    aws_access_key: "{{ qlmgt_nat_assumed_role.sts_creds.access_key }}"
+    aws_secret_key: "{{ qlmgt_nat_assumed_role.sts_creds.secret_key }}"
+    security_token: "{{ qlmgt_nat_assumed_role.sts_creds.session_token }}"
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Channel": "lto"
+      "tag:Env": "mgt"
+  register: mgt_nat_gateways_facts
+  tags:
+    - always
+
+- set_fact:
+    mgt_nat_gateways_cidrs: "{{ mgt_nat_gateways_facts.result | map(attribute='nat_gateway_addresses') |
+      sum(start=[]) | map(attribute='public_ip') | list | join('/32, ') + '/32'}}"
+  tags:
+    - always
+
+
+# The port range defined below is the dynamic ports that ECS use.
+# See http://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_PortMapping.html for details
+
+- name: Security group for instance
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-{{ infrastructure_name }}"
+    description: "Security group for {{ channel }}-{{ env}}-{{ type }} instance"
+    vpc_id: "{{ vpc_fact }}"
+    purge_rules: true
+    rules: "{{ sec_group_instance_rules }}"
+    tags:
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Name: "sec-{{ infrastructure_name }}"
+      Type: "{{ type }}"
+  register: sec_group_instance
+  tags:
+    - sec_group
+
+### SSH key pair
+
+- name: Create AWS key pair
+  ec2_key:
+    region: "{{ aws_region }}"
+    name: "{{ aws_key_pair_name }}"
+    state: present
+  tags:
+    - asg
+
+### Auto-Scaling launch configuration
+
+- name: Launch configuration
+  ec2_lc:
+    region: "{{ aws_region }}"
+    name: "lc-{{ infrastructure_name }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    assign_public_ip: "{{ use_public_ip }}"
+    image_id: "{{ ami_id }}"
+    key_name: "{{ aws_key_pair_name }}"
+    security_groups:
+      - "{{ sec_group_instance.group_id }}"
+      - "sec-{{ channel }}-{{ env }}-restricted-techops"  # Created in fa_infra_aws_common_sec_groups role
+    instance_type: "{{ instance_type }}"
+    instance_profile_name: "{{ iam_role.iam_role.role_name }}"
+    volumes:
+      - device_name: /dev/xvda
+        volume_size: "{{ root_volume_size }}"
+        device_type: gp2
+        delete_on_termination: true
+      - device_name: /dev/xvdcz
+        volume_size: "{{ data_volume_size }}"
+        device_type: gp2
+        delete_on_termination: true
+    user_data: "{{ user_data }}"
+  register: lc
+  tags:
+    - asg
+
+### Auto-Scaling group
+
+- name: Auto-Scaling group
+  ec2_asg:
+    region: "{{ aws_region }}"
+    name: "asg-{{ infrastructure_name }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    launch_config_name: "{{ lc.name }}"
+    desired_capacity: "{{ asg_desired_size }}"
+    min_size: "{{ asg_min_size }}"
+    max_size: "{{ asg_max_size }}"
+    vpc_zone_identifier: "{% if asg_vpc_zone_identifier is defined and asg_vpc_zone_identifier != '' %}{{
+                             asg_vpc_zone_identifier}}{% else %}{{ vpc_subnets_for_asg }}{% endif%}"
+    tags: "{{ default_tags + extra_tags + datadog_tags}}"
+  register: asg
+  tags:
+    - asg
+
+### ECS cluster
+
+- name: ECS cluster
+  ecs_cluster:
+    region: "{{ aws_region }}"
+    name: "{{ cluster_name }}"
+    state: present
+  tags:
+    - ecs

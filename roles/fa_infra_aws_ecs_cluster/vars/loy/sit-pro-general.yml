@@ -1,0 +1,43 @@
+---
+asg_desired_size: 3
+asg_min_size: 3
+instance_type: t2.medium
+
+extra_tags:
+  - EBSToUse: "vol-0a1cd36c8a0ff1299"  # EBS for certbot in loy VPC
+
+sec_group_instance_rules:
+  - proto: tcp
+    from_port: 32768
+    to_port: 60999
+    cidr_ip: "{{ vpc_fact.vpcs.0.cidr_block }}"
+    rule_desc: "Allow traffic to ECS dynamic port range from {{ channel }} VPC"
+
+user_data: |
+  #!/bin/bash
+
+  echo "ECS_CLUSTER=cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}" >> /etc/ecs/ecs.config
+  echo "ECS_AVAILABLE_LOGGING_DRIVERS=[\"splunk\",\"syslog\",\"fluentd\",\"json-file\"]" >> /etc/ecs/ecs.config
+  echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
+
+  export PATH=$PATH:/usr/local/bin
+  export AWS_DEFAULT_REGION="ap-southeast-2"
+
+  # Get the current instance id
+  instance_id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+  # Get the instance tags
+  describe_tags_result=$(aws ec2 describe-tags --filters "Name=resource-id,Values=${instance_id}")
+
+  # Get values of specific tags
+  ecs_cluster_name=$(echo ${describe_tags_result} | jq -r '.Tags[] | select(.Key == "EcsClusterName") | .Value')
+  ENV=$(echo ${describe_tags_result} | jq -r '.Tags[] | select(.Key == "Env") | .Value')
+
+  # Make the directories for mounting
+  mkdir -p {{ ebs_mount_point.certbot }}
+
+  # Add ebs volumes to fstab
+  echo "/dev/sdf {{ ebs_mount_point.certbot }} auto defaults 0 0 " >> /etc/fstab
+
+  # Mount all
+  mount -a

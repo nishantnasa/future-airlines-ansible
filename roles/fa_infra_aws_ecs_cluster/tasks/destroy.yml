@@ -1,0 +1,61 @@
+---
+# tasks file for fa_infra_aws_ecs_cluster destruction
+
+### Get vars
+
+- name: Get vars for environment
+  include:
+    ../../../get_env_vars.yml
+  tags:
+    - always
+
+# TODO: Need to add a step here to deregister all ec2 instances from cluster
+
+### ECS cluster
+
+- name: ECS cluster
+  ecs_cluster:
+    region: "{{ aws_region }}"
+    name: "cluster-{{ env }}-{{ cluster_id }}"
+    state: absent
+  when: remove_cluster
+
+### Auto-Scaling group
+
+- name: Get list of ASGs
+  ec2_asg_facts:
+    region: "{{ aws_region }}"
+    tags:
+      Type: "{{ type }}"
+      Env: "{{ env }}"
+  register: asgs
+
+- name: Auto-Scaling group
+  ec2_asg:
+    region: "{{ aws_region }}"
+    name: "{{ item['auto_scaling_group_name'] }}"
+    state: absent
+  with_items:
+    "{{ asgs.results }}"
+  tags:
+    - asg
+
+### Security Group
+
+- name: Security group for instance
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-{{ env }}-{{ type }}"
+    description: Security group for {{ type }} instance"
+    state: absent
+  tags:
+    - sec_group
+
+### IAM role and policy
+
+- name: IAM role
+  iam_role:
+    name: "{{ env }}-{{ type }}"
+    state: absent
+  tags:
+    - iam

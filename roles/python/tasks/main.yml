@@ -1,0 +1,28 @@
+---
+# tasks file for python
+
+### Variable setup
+
+- name: Include Ansible Linux 1-specific variables.
+  include_vars: "AmazonLinux1.yml"
+  when: ansible_distribution == 'Amazon' and ansible_distribution_version == 'NA'
+
+- name: Include Ansible Linux 2-specific variables.
+  include_vars: "AmazonLinux2.yml"
+  when: ansible_distribution == 'Amazon' and ansible_distribution_version == '2'
+
+### Python setup
+
+- name: Install Python
+  yum:
+    name:
+      - "python{{ python2_install_version }}"
+      - "python{{ python3_install_version }}"
+    state: present
+
+- name: Install python-pip
+  yum:
+    name:
+      - "python{{ python2_install_version }}-pip"
+      - "python{{ python3_install_version }}-pip"
+    state: present

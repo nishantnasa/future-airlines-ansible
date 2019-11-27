@@ -14,7 +14,7 @@ has all the necessary permissions and most hosts already allow the Ansible IP ad
 SSH to ansible.future-airlines.net.  The repo is checked out in /etc/ansible.
 
 The Ansible IAM role has permissions to perform AWS actions as well as assume IAM roles in other AWS accounts. You can see the Ansible
-IAM role in this repo under `roles/ql_infra_ansible`.
+IAM role in this repo under `roles/fa_infra_ansible`.
 
 ## Ansible and AWS
 

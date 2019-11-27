@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RexrayEfsDriverEfsPermissions",
+      "Action": [
+        "elasticfilesystem:Describe*",
+        "elasticfilesystem:CreateFileSystem",
+        "elasticfilesystem:CreateMountTarget",
+        "elasticfilesystem:CreateTags"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Effect": "Allow"
+    },
+    {
+      "Sid": "RexrayEfsDriverEC2Permissions",
+      "Action": [
+        "ec2:CreateNetworkInterface",
+        "ec2:AttachVolume",
+        "ec2:CreateVolume",
+        "ec2:CreateTags",
+        "ec2:Describe*"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Effect": "Allow"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+---
+# tasks file for fa_infra_aws_ecs_cluster
+
+- name: Print where we're deploying to
+  debug:
+    msg: "We are deploying to {{ env }}"
+  tags:
+    - always
+
+- include_tasks: "{{ create_or_destroy }}.yml"
+  tags:
+    - always

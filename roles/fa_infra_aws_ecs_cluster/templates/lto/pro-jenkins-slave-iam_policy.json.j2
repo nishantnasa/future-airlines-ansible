@@ -1,0 +1,55 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": [
+        "arn:aws:iam::453559030913:role/assumed-jenkins",
+        "arn:aws:iam::040879583437:role/assumed-jenkins",
+        "arn:aws:iam::985853243651:role/assumed-jenkins",
+        "arn:aws:iam::602986065330:role/assumed-jenkins",
+        "arn:aws:iam::530434727244:role/assumed-jenkins",
+        "arn:aws:iam::778547432350:role/assumed-jenkins",
+        "arn:aws:iam::158602325238:role/assumed-jenkins",
+        "arn:aws:iam::518555620518:role/assumed-jenkins"
+      ]
+    },
+    {
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload"
+      ],
+      "Resource": "*",
+      "Effect": "Allow"
+    },
+    {
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::*",
+      "Effect": "Allow"
+    },
+    {
+      "Action": [
+        "s3:GetObjectVersionAcl",
+        "s3:PutObject",
+        "s3:PutObjectAcl",
+        "s3:PutObjectVersionAcl",
+        "s3:CreateMultipartUpload"
+      ],
+      "Resource": [
+        "arn:aws:s3:::s3-vpc01-lambda-deployment-qlmgt01/*",
+        "arn:aws:s3:::s3-vpc01-lambda-deployment-qlmgt02/*"
+      ],
+      "Effect": "Allow"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+---
+# defaults file for fa_jenkins-server
+
+jenkins_admin_username: admin
+jenkins_admin_password: "testpassword"

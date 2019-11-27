@@ -1,0 +1,30 @@
+# This playbook gathers VPC facts for loy-int-nginx-integration that needs to allow traffic from lsl, old, qbr VPCs
+# within its own account.
+---
+
+- name: Get VPC subnet facts for lsl
+  ec2_vpc_subnet_facts:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Channel": "lsl"
+      "tag:Env": "{% if aws_account_name == 'qlprd' %}prd{% else %}stg{% endif %}"
+      "tag:Type": "protected"
+  register: lsl_vpc_protected_subnet_fact
+
+- name: Get VPC subnet facts for qbr
+  ec2_vpc_subnet_facts:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Channel": "qbr"
+      "tag:Env": "{% if aws_account_name == 'qlprd' %}prd{% else %}stg{% endif %}"
+      "tag:Type": "protected"
+  register: qbr_vpc_protected_subnet_fact
+
+- name: Get VPC subnet facts for old
+  ec2_vpc_subnet_facts:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Channel": "old"
+      "tag:Env": "{% if aws_account_name == 'qlprd' %}prd{% else %}stg{% endif %}"
+      "tag:Type": "protected"
+  register: old_vpc_protected_subnet_fact

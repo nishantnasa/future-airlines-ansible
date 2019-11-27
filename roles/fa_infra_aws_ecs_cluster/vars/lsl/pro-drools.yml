@@ -1,0 +1,20 @@
+---
+asg_desired_size: 2
+asg_min_size: 2
+instance_type: m4.xlarge
+sec_group_instance_rules:
+ - proto: tcp
+   from_port: 8080
+   to_port: 8080
+   cidr_ip: "{{ vpc_fact.vpcs.0.cidr_block }}"
+   rule_desc: "{{ aws_account_name }}-{{ channel }}-{{ env }} VPC cidr"
+ - proto: tcp
+   from_port: 8088
+   to_port: 8088
+   cidr_ip: "{{ vpc_fact.vpcs.0.cidr_block }}"
+   rule_desc: "{{ aws_account_name }}-{{ channel }}-{{ env }} VPC cidr"
+ - proto: tcp
+   from_port: 32768
+   to_port: 60999
+   cidr_ip: "{{ vpc_fact.vpcs.0.cidr_block }}"
+   rule_desc: "{{ aws_account_name }}-{{ channel }}-{{ env }} VPC cidr"

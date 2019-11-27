@@ -1,0 +1,21 @@
+---
+
+- name: Get facts for running ansible servers
+  ec2_instance_facts:
+    filters:
+      "tag:Type": ansible
+  register: ec2_facts
+
+- name: Set DNS for ansible
+  route53:
+    command: create
+    zone: "{{ item.zone }}"
+    type: A
+    ttl: 60
+    private_zone: false
+    record: "{{ item.record }}"
+    value: "{{ (ec2_facts.instances | sort(attribute='launch_time'))[-1].private_ip_address }}"
+    overwrite: true
+  with_items: "{{ dns_records }}"
+  tags:
+    - dns

@@ -1,0 +1,63 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:AttachNetworkInterface",
+        "ec2:DetachNetworkInterface",
+        "elasticfilesystem:DescribeFileSystems"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Action": "lambda:InvokeFunction",
+      "Resource": [ "arn:aws:lambda:*:*:*:*" ],
+      "Effect": "Allow"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AttachVolume"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:volume/*",
+        "arn:aws:ec2:*:*:instance/*"
+      ]
+    }
+    {% if channel == "dsc" and cluster_id == "s3-sync" -%}
+    ,{
+        "Effect": "Allow",
+        "Action": [
+          "elasticfilesystem:CreateFileSystem",
+          "elasticfilesystem:CreateMountTarget",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:CreateNetworkInterface",
+          "elasticfilesystem:CreateTags",
+          "elasticfilesystem:DeleteFileSystem",
+          "elasticfilesystem:DeleteMountTarget",
+          "ec2:DeleteNetworkInterface",
+          "elasticfilesystem:DescribeFileSystems",
+          "elasticfilesystem:DescribeMountTargets"
+        ],
+        "Resource": "*"
+    }
+    {%- endif %}
+    {% if cluster_id == "splunk" or cluster_id == "splunk-test" -%}
+    ,{
+        "Action": "sts:AssumeRole",
+        "Resource": [
+            "arn:aws:iam::453559030913:role/assumed-splunk",
+            "arn:aws:iam::040879583437:role/assumed-splunk",
+            "arn:aws:iam::985853243651:role/assumed-splunk",
+            "arn:aws:iam::518555620518:role/assumed-splunk",
+            "arn:aws:iam::113053657575:role/assumed-splunk"
+        ],
+        "Effect": "Allow"
+    }
+    {%- endif %}
+  ]
+}
+

@@ -1,0 +1,16 @@
+---
+# defaults file for fa_infra_ansible
+
+create_or_destroy: create
+ami_id: ami-03d666ae9b70653b6
+type: ansible
+type_prefix: "{{ channel }}-{{ env }}"
+instance_type: t3.medium
+asg_desired_size: 1
+asg_min_size: 1
+asg_max_size: 1
+dns_records:
+  - {record: "ansible.future-airlines.net", zone: "future-airlines.net"}
+  - {record: "ansible.future-airlines.io", zone: "future-airlines.io"}
+channel: techops
+env: dev

@@ -1,0 +1,17 @@
+---
+# tasks file for java
+
+- name: Install Java
+  yum:
+    name: "java-{{ java_version }}-openjdk"
+    state: present
+
+- name: java alternatives
+  alternatives:
+    name: java
+    path: "/usr/lib/jvm/jre-{{ java_version }}-openjdk.x86_64/bin/java"
+
+- name: jre alternatives
+  alternatives:
+    name: jre_openjdk
+    path: "/usr/lib/jvm/jre-{{ java_version }}-openjdk.x86_64"

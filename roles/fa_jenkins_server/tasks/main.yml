@@ -1,0 +1,150 @@
+---
+# tasks file for fa_jenkins-server
+
+### Add jenkins Yum repo
+
+- name: Jenkins Yum repo
+  get_url:
+    url: http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
+    dest: /etc/yum.repos.d/jenkins.repo
+    mode: 0644
+
+- name: RPM key
+  rpm_key:
+    key: http://pkg.jenkins-ci.org/redhat/jenkins-ci.org.key
+    state: present
+
+### gcredstash
+
+- name: install the gcredstash rpm from a remote repo
+  yum:
+    name: https://github.com/winebarrel/gcredstash/releases/download/v0.3.5/gcredstash-0.3.5-1.el6.x86_64.rpm
+    state: present
+
+- name: Set permission for gcredstash to be executable by everyone
+  file:
+    path: /usr/sbin/gcredstash
+    mode: 0711
+
+### Install jenkins
+
+- name: Ensure jenkins installed
+  yum:
+    name: jenkins
+    state: present
+
+- name: Ensure jenkins service start on boot
+  service:
+    name: jenkins
+    enabled: true
+
+### Configure jenkins
+- name: Disable jenkins start wizard and add extra Jenkins JVM argument to relax content security rule for HTML report
+        rendering
+  replace:
+    dest: /etc/sysconfig/jenkins
+    regexp: '^JENKINS_JAVA_OPTIONS="-Djava.awt.headless=true"$'
+    replace: "JENKINS_JAVA_OPTIONS=\"-DsessionTimeout=86400 -Dhudson.slaves.WorkspaceList=_ -Djava.awt.headless=true
+              -Djenkins.install.runSetupWizard=false -Dorg.apache.commons.jelly.tags.fmt.timeZone=Australia/Sydney
+              -Dhudson.model.DirectoryBrowserSupport.CSP=\\\"sandbox allow-same-origin allow-scripts; default-src
+              'none'; img-src 'self' 'unsafe-inline'; font-src 'self'; style-src 'self' 'unsafe-inline';  script-src
+              'self' 'unsafe-inline'\\\"\""
+
+# See
+# https://wiki.jenkins-ci.org/display/JENKINS/Slave+To+Master+Access+Control#SlaveToMasterAccessControl-Disabletheaccesscontrolmechanismaltogether
+- name: Copy master-slave kill switch file
+  copy:
+    src: jenkins/slave-to-master-security-kill-switch
+    dest: /var/lib/jenkins/secrets/
+    owner: jenkins
+    group: jenkins
+
+### Configure an admin password (this will run next time Jenkins starts)
+
+- name: Directory for jenkins-groovy init scripts
+  file:
+    path: /var/lib/jenkins/init.groovy.d
+    owner: jenkins
+    group: jenkins
+    state: directory
+
+- name: groovy script to set admin user
+  template:
+    src: basic-security.groovy
+    dest: /var/lib/jenkins/init.groovy.d/basic-security.groovy
+    owner: jenkins
+    group: jenkins
+
+### Directory for Jenkins backups
+
+- name: Directory for jenkins backup
+  file:
+    path: /opt/jenkins_thin_backup
+    owner: jenkins
+    group: jenkins
+    state: directory
+
+### Start Jenkins (so we can install plugins)
+
+- name: Start jenkins
+  service:
+    name: jenkins
+    state: started
+
+- name: Wait for Jenkins to start
+  wait_for:
+    delay: 5
+    port: 8080
+    state: started
+
+- name: Wait a bit more even though the port is open
+  pause:
+    seconds: 60
+
+### Jenkins plugins
+
+- name: Jenkins plugins
+  jenkins_plugin:
+    name: "{{ item }}"
+    with_dependencies: true
+    state: present
+    url_username: "{{ jenkins_admin_username }}"
+    url_password: "{{ jenkins_admin_password }}"
+    timeout: 300
+  with_items:
+    - blueocean
+    - build-pipeline-plugin
+    - build-timestamp
+    - build-timeout
+    - build-user-vars-plugin
+    - cloudbees-bitbucket-branch-source
+    - cloudbees-folder
+    - role-strategy
+    - ssh-agent
+    - workflow-multibranch
+    - ws-cleanup
+    - pipeline-maven
+    - pipeline-stage-view
+    - junit-attachments
+    - ec2
+    - s3
+    - cucumber-reports
+    - thinBackup
+    - slack
+    - jacoco
+    - pipeline-utility-steps
+    - pipeline-aws
+    - htmlpublisher
+    - rebuild
+    - ansicolor
+    - amazon-ecs
+    - saml
+    - log-parser
+    - datadog
+
+### Remove script that sets admin password
+
+- name: Remove admin password script
+  file:
+    path: /var/lib/jenkins/init.groovy.d/basic-security.groovy
+    state: absent

@@ -1,0 +1,9 @@
+---
+asg_desired_size: 1
+asg_min_size: 1
+instance_type: m5.xlarge
+sec_group_instance_rules:
+  - proto: tcp
+    from_port: 32768
+    to_port: 60999
+    cidr_ip: "{{ vpc_fact_cidr_block }}"

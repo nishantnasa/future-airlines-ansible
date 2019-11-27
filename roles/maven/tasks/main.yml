@@ -1,0 +1,34 @@
+---
+# tasks file for maven
+
+- name: Check if maven already exists
+  stat:
+    path: "/usr/local/{{ maven_archive_name|replace('-bin', '') }}"
+  register: mvn_stat
+
+- block:
+
+    - name: Fetch Maven installation tar
+      get_url:
+        url: "http://apache.mirror.digitalpacific.com.au/maven/maven-3/{{ maven_version }}/binaries/{{ maven_archive_name }}.tar.gz"
+        dest: /tmp/
+
+    - name: Untar
+      unarchive:
+        src: "/tmp/{{ maven_archive_name }}.tar.gz"
+        dest: /usr/local/
+        copy: false
+
+  when:
+    mvn_stat.stat.exists == False
+
+- name: Symlink
+  file:
+    src: "/usr/local/{{ maven_archive_name|replace('-bin', '') }}"
+    dest: /usr/local/apache-maven
+    state: link
+
+- name: Maven bash profile
+  copy:
+    src: ../files/maven.sh
+    dest: /etc/profile.d/maven.sh

@@ -1,0 +1,5 @@
+---
+# defaults file for python
+
+python2_install_version: 2
+python3_install_version: 3

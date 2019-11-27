@@ -1,0 +1,63 @@
+---
+# defaults file for fa_infra_aws_ecs_cluster
+
+create_or_destroy: create
+ami_id: ami-0810c299d74b537d0
+type: ecscluster
+type_prefix: "{{ channel }}-{{ env }}"
+instance_type: m5.large
+root_volume_size: 30
+data_volume_size: 22
+asg_min_size: 3
+asg_max_size: 9
+asg_desired_size: 3
+allow_against_prod: false
+cluster_id: general
+# We use this rather than the usual {channel}-{env}-{type} naming convention to identify the different cluster IDs
+infrastructure_name: "{{ channel }}-{{ env }}-{{ type }}-{{ deploy_in_subnet }}-{{ cluster_id }}"
+cluster_name: "cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}"
+remove_cluster: true
+use_public_ip: false
+
+require_lsl_vpc_facts: false
+
+sec_group_instance_rules:
+  - proto: tcp
+    from_port: 32768
+    to_port: 60999
+    cidr_ip: "{{ vpc_fact_cidr_block }}"
+    rule_desc: "Allow traffic to ECS dynamic port range from {{ channel }} VPC"
+
+extra_tags: []
+
+datadog_tags:
+  - DatadogEnabled: "{% if env in ('prd', 'stg', 'mgt') %}true{% else %}false{% endif %}"
+
+default_tags:
+  - EcsClusterName: "{{ cluster_name }}"
+  - EcsClusterId: "{{ cluster_id }}"
+  - Channel: "{{ channel }}"
+  - Env: "{{ env }}"
+  - Type: "{{ type }}"
+
+efs_dns:
+  stackstorm: stackstorm.efs.internal.qantasloyalty.net
+  hybris: hybris.efs.internal.qantasloyalty.net
+  sonarqube: sonarqube.efs.internal.qantasloyalty.net
+
+efs_mount_point:
+  stackstorm: /mnt/efs-lto-stackstorm
+  hybris: /mnt/efs-epq-hybris
+  sonarqube: /mnt/efs-lto-mgt-sonarqube
+
+ebs_mount_point:
+  splunk_etc: /mnt/splunk_etc
+  splunk_var: /mnt/splunk_var
+  certbot: /mnt/certbot
+
+user_data: |
+  #!/bin/bash
+
+  echo "ECS_CLUSTER=cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}" >> /etc/ecs/ecs.config
+  echo "ECS_AVAILABLE_LOGGING_DRIVERS=[\"splunk\",\"syslog\",\"fluentd\",\"json-file\"]" >> /etc/ecs/ecs.config
+  echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config

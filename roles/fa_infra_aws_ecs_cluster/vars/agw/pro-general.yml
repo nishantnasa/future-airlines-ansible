@@ -1,0 +1,13 @@
+---
+asg_desired_size: 3
+asg_max_size: 9
+sec_group_instance_rules:
+    "{{ [
+           {'proto':'tcp', 'from_port': 32768, 'to_port': 60999,
+            'cidrs': [
+                sec_group_cidr.qantas_external,
+                [vpc_fact.vpcs.0.cidr_block],
+                mgt_nat_gateways_cidrs.split(',')
+            ]}
+         ] | sec_group_helper
+     }}"
