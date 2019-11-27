@@ -1,0 +1,109 @@
+---
+# tasks file for fa_infra_jenkins destruction
+
+### Get vars
+
+- name: Get vars for environment
+  include:
+    ../../../get_env_vars.yml
+  tags:
+    - always
+
+### ec2 instances
+
+- name: Get Sonar type instances
+  ec2_remote_facts:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Env": "{{ env }}"
+      "tag:Type": "{{ type }}"
+  register: ec2
+
+- name: ec2 instances
+  ec2:
+    region: "{{ aws_region }}"
+    instance_ids: "{{ item.id }}"
+    state: absent
+    wait: true
+    wait_timeout: 300
+  register: ec2
+  with_items:
+    "{{ ec2.instances }}"
+
+### Database (RDS and database itself)
+
+- name: Get RDS detail
+  rds:
+    region: "{{ aws_region }}"
+    command: facts
+    instance_name: "rds-{{ env }}-postgresql-1"
+  register: rds
+  tags:
+    - db
+
+- name: Database user for Sonar
+  postgresfa_user:
+    name: "{{ sonar_db_username }}"
+    password: "{{ sonar_db_password }}"
+    priv: ALL
+    db: "{{ sonar_db_name }}"
+    state: absent
+    login_host: "{{ rds.instance.endpoint }}"
+    login_user: "{{ aws_rds_instance_user }}"
+    login_password: "{{ aws_rds_instance_password }}"
+  tags:
+    - db
+
+- name: Database for Sonar
+  postgresfa_db:
+    name: "{{ sonar_db_name }}"
+    state: absent
+    encoding: utf8
+    login_host: "{{ rds.instance.endpoint }}"
+    login_user: "{{ aws_rds_instance_user }}"
+    login_password: "{{ aws_rds_instance_password }}"
+  register: sonar_db
+  tags:
+    - db
+
+- name: DNS for database
+  route53:
+    command: delete
+    zone: services.future-airlines.com
+    type: CNAME
+    ttl: 60
+    private_zone: true
+    vpc_id: "{{ vpc_fact }}"
+    record: "{{ sonar_db_host }}"
+    value: "{{ rds.instance.endpoint }}"
+  tags:
+    - db
+
+### Security Group
+
+- name: Security group for instance
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-{{ env }}-{{ type }}"
+    description: "Security group for {{ type }} ec2 instances"
+    state: absent
+  tags:
+    - sec_group
+
+### IAM role and policy
+
+- name: IAM policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ env }}-{{ type }}"
+    policy_name: "policy-{{ env }}-{{ type }}"
+    state: absent
+  tags:
+    - iam
+
+- name: IAM role
+  iam_role:
+    name: "{{ env }}-{{ type }}"
+    state: absent
+  tags:
+    - iam

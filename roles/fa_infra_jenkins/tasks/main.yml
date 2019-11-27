@@ -1,0 +1,13 @@
+---
+# tasks file for fa_infra_jenkins
+
+- name: Fail if we're trying to run against prod
+  fail:
+    msg: Naughty! Can not run against prod!
+  when: env == "prd"
+  tags:
+    - always
+
+- include_tasks: "{{ create_or_destroy }}.yml"
+  tags:
+    - always

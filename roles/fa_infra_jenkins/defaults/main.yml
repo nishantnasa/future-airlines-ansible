@@ -1,0 +1,14 @@
+---
+# defaults file for fa_infra_jenkins
+
+create_or_destroy: create
+ami_id: ami-0c7f235b243d60962
+type: jenkins
+type_prefix: "{{ channel }}-{{ env }}"
+instance_type: t2.small
+set_dns: true
+asg_desired_size: 1
+asg_min_size: 1
+asg_max_size: 1
+channel: techops
+env: dev

@@ -1,0 +1,248 @@
+---
+# tasks file for fa_infra_jenkins creation
+
+### Get vars
+
+- name: Get vars for environment
+  include:
+    ../../../get_env_vars_channel.yml
+  tags:
+    - always
+
+### IAM role and policy
+
+- name: IAM role
+  iam_role:
+    name: "{{ type_prefix }}-{{ type }}"
+    assume_role_policy_document: "{{ lookup('file', 'iam_role_trust_policy_doc.json') }}"
+    state: present
+  register: iam
+  tags:
+    - iam
+
+### Remove this policy when Jenkins master offloads all jobs to slaves
+- name: IAM policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam.iam_role.role_name }}"
+    policy_name: "policy-{{ type_prefix }}-{{ type }}"
+    policy_json: "{{ lookup('template', '../templates/iam_policy.json') }}"
+    state: present
+  tags:
+    - iam
+
+### Permission required for Jenkins master to manage ECS tasks
+- name: IAM policy
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam.iam_role.role_name }}"
+    policy_name: "policy-{{ env }}-{{ type }}-ecs"
+    policy_json: "{{ lookup('template', '../templates/jenkins_master_iam_policy.json') }}"
+    state: present
+  tags:
+    - iam
+
+- name: IAM role for Jenkins slave
+  iam_role:
+    name: "{{ type_prefix }}-{{ type }}-slave"
+    assume_role_policy_document: "{ \"Version\": \"2012-10-17\",
+                                    \"Statement\": [{ \"Sid\": \"\", \"Effect\": \"Allow\", \"Principal\": {
+                                    \"Service\": \"ecs-tasks.amazonaws.com\" }, \"Action\": \"sts:AssumeRole\" }] }"
+    state: present
+  register: iam_jenkins_slave
+  tags:
+    - iam
+
+- name: IAM policy for Jenkins slave
+  iam_policy:
+    iam_type: role
+    iam_name: "{{ iam_jenkins_slave.iam_role.role_name }}"
+    policy_name: "policy-{{ env }}-{{ type }}"
+    policy_json: "{{ lookup('template', '../templates/iam_policy.json') }}"
+    state: present
+  tags:
+    - iam
+
+# ECS Task role for Jenkins slaves
+# (see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)
+- name: EcsTaskExecutionRole IAM role
+  iam_role:
+    name: ecsTaskExecutionRole
+    assume_role_policy_document: "{ \"Version\": \"2012-10-17\",
+                                    \"Statement\": [{ \"Sid\": \"\", \"Effect\": \"Allow\", \"Principal\": {
+                                    \"Service\": \"ecs-tasks.amazonaws.com\" }, \"Action\": \"sts:AssumeRole\" }] }"
+    state: present
+    managed_policy:
+      - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  tags:
+    - iam
+
+- name: Wait 15 seconds for IAM to propagate
+  pause:
+    seconds: 15
+  when: iam.changed
+
+### Security Group
+
+- name: Security group for elb
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-elb-{{ type_prefix }}-{{ type }}"
+    description: "Security group for {{ type_prefix }} {{ type }} elb"
+    vpc_id: "{{ vpc_fact }}"
+    purge_rules: true
+    rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: "0.0.0.0/0"
+    tags:
+      Name: "sec-elb-{{ type_prefix }}-{{ type }}"
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Type: "{{ type }}"
+  register: sec_group_elb
+  tags:
+    - sec_group
+
+- name: Security group for ec2 instance(s)
+  ec2_group:
+    region: "{{ aws_region }}"
+    name: "sec-{{ type_prefix }}-{{ type }}"
+    description: "Security group for {{ type_prefix }} {{ type }} ec2 instances"
+    vpc_id: "{{ vpc_fact }}"
+    purge_rules: true
+    rules:
+      - proto: tcp
+        from_port: 8080
+        to_port: 8080
+        cidr_ip: "{{ vpc_fact_cidr_block }}"
+        rule_desc: "{{ aws_account_name }}-{{ channel }}-{{ env }} VPC cidr"
+      - proto: tcp
+        from_port: 50000
+        to_port: 50000
+        group_id: "{{ sec_group_elb.group_id }}"
+        rule_desc: "allow Jenkins slave JNLP connect"
+    tags:
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Name: "sec-{{ type_prefix }}-{{ type }}"
+      Type: "{{ type }}"
+  register: sec_group_instance
+  tags:
+    - sec_group
+
+### SSH key pair
+
+- name: Create AWS key pair
+  ec2_key:
+    region: "{{ aws_region }}"
+    name: "{{ aws_key_pair_name }}"
+    state: present
+
+### ELB target group
+
+- name: Target group
+  elb_target_group:
+    region: "{{ aws_region }}"
+    name: "tg-{{ type_prefix }}-{{ type }}"
+    protocol: http
+    port: 8080
+    vpc_id: "{{ vpc_fact }}"
+    health_check_path: /
+    modify_targets: false
+    state: present
+    tags:
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Type: "{{ type }}"
+  register: tg
+  tags:
+    - tg
+
+### Load balancer
+
+- name: Load balancer
+  elb_application_lb:
+    region: "{{ aws_region }}"
+    name: "alb-{{ type_prefix }}-{{ type }}"
+    listeners:
+      - Protocol: HTTP
+        Port: 80
+        DefaultActions:
+          - Type: forward
+            TargetGroupArn: "{{ tg.target_group_arn }}"
+    security_groups:
+      - "{{ sec_group_elb.group_id }}"
+    scheme: internet-facing
+    state: present
+    subnets: "{{ vpc_subnet_public_fact.subnets | map(attribute='id') | list }}"
+    tags:
+      Channel: "{{ channel }}"
+      Env: "{{ env }}"
+      Type: "{{ type }}"
+  register: elb
+  tags:
+    - elb
+
+### Auto-Scaling launch configuration
+
+- name: Launch configuration
+  ec2_lc:
+    region: "{{ aws_region }}"
+    name: "lc-{{ type_prefix }}-{{ type }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    assign_public_ip: false
+    image_id: "{{ ami_id }}"
+    key_name: "{{ aws_key_pair_name }}"
+    security_groups:
+      - "{{ sec_group_instance.group_id }}"
+      - "sec-{{ type_prefix }}-restricted-ssh"
+    instance_type: "{{ instance_type }}"
+    instance_profile_name: "{{ type_prefix }}-{{ type }}"
+    volumes:
+      - device_name: /dev/xvda
+        volume_size: 2000
+        device_type: gp2
+        delete_on_termination: true
+  register: lc
+  tags:
+    - asg
+
+### Auto-Scaling group
+
+- name: Auto-Scaling group
+  ec2_asg:
+    region: "{{ aws_region }}"
+    name: "asg-{{ type_prefix }}-{{ type }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+    launch_config_name: "{{ lc.name }}"
+    desired_capacity: "{{ asg_desired_size }}"
+    min_size: "{{ asg_min_size }}"
+    max_size: "{{ asg_max_size }}"
+    vpc_zone_identifier: "{{ vpc_subnet_protected_fact.subnets | map(attribute='id') | list }}"
+    target_group_arns:
+      - "{{ tg.target_group_arn }}"
+    tags:
+      - Channel: "{{ channel }}"
+        Env: "{{ env }}"
+        Type: "{{ type }}"
+  register: asg
+  tags:
+    - asg
+
+### Public DNS name
+
+# - name: DNS for ELB
+#   route53:
+#     command: create
+#     zone: jenkins.future-airlines.com
+#     type: A
+#     ttl: 60
+#     private_zone: true
+#     record: "{{ type }}.app.internal.future-airlines.net"
+#     value: "{{ elb.dns_name }}"
+#     alias: true
+#     alias_hosted_zone_id: "{{ elb.canonical_hosted_zone_id }}"
+#     overwrite: true
+#   when: set_dns
+#   tags:
+#     - dns

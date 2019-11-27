@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "ecs:RegisterTaskDefinition",
+        "ecs:ListClusters",
+        "ecs:DescribeContainerInstances",
+        "ecs:ListTaskDefinitions",
+        "ecs:DescribeTaskDefinition"
+      ],
+      "Effect": "Allow",
+      "Resource": "*"
+    },
+    {
+      "Action": [
+        "ecs:ListContainerInstances"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:ecs:{{ aws_region }}:{{ aws_account_id }}:cluster/cluster-lto-mgt-pro-jenkins-slave"
+      ]
+    },
+    {
+      "Action": [
+        "ecs:DescribeTasks",
+        "ecs:StopTask"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:ecs:{{ aws_region }}:{{ aws_account_id }}:task/cluster-lto-mgt-pro-jenkins-slave/*"
+      ]
+    },
+    {
+      "Action": [
+        "ecs:RunTask"
+      ],
+      "Effect": "Allow",
+      "Resource": "arn:aws:ecs:{{ aws_region }}:{{ aws_account_id }}:task-definition/lto-mgt-jenkins-slave*:*"
+    }
+  ]
+}
