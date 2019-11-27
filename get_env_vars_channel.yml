@@ -1,0 +1,71 @@
+---
+
+- debug:
+    msg: "AWS account ID (passed from inventory vars): {{ aws_account_id }}\nAWS account name (passed from inventory
+          vars): {{ aws_account_name }}\nCHANNEL: {{ channel }}\nENV: {{ env }}"
+  tags:
+    - always
+
+- name: Get VPC facts
+  set_fact:
+    vpc_fact: vpc-04eb3181a7b776b43
+  tags:
+    - always
+
+- name: Get private subnet facts for VPC
+  local_action:
+    module: ec2_vpc_subnet_facts
+    region: "{{ aws_region }}"
+    filters:
+      vpc-id: "{{ vpc_fact }}"
+      "tag:Type": "private"
+  register: vpc_subnet_private_fact
+  become: false
+  failed_when: not vpc_subnet_private_fact.subnets
+  tags:
+    - always
+
+- name: Get protected subnet facts for VPC
+  local_action:
+    module: ec2_vpc_subnet_facts
+    region: "{{ aws_region }}"
+    filters:
+      vpc-id: "{{ vpc_fact }}"
+      "tag:Type": "protected"
+  register: vpc_subnet_protected_fact
+  become: false
+  # Below is commented out while we remove old BP accounts that don't have protected subnets
+  # failed_when: not vpc_subnet_protected_fact.subnets
+  tags:
+    - always
+
+- name: Get public subnet facts for VPC
+  local_action:
+    module: ec2_vpc_subnet_facts
+    region: "{{ aws_region }}"
+    filters:
+      vpc-id: "{{ vpc_fact }}"
+      "tag:Type": "public"
+  register: vpc_subnet_public_fact
+  become: false
+  failed_when: not vpc_subnet_public_fact.subnets
+  tags:
+    - always
+
+# for sample outputs see
+# http://boto3.readthedocs.io/en/latest/reference/services/ec2.html#EC2.Client.describe_nat_gateways
+# vpc_nat_gateway_ids: "{{ vpc_nat_gateway_fact | json_query('result[].nat_gateway_id') }}"
+# vpc_nat_gateway_ips: "{{ vpc_nat_gateway_fact | json_query('result[].nat_gateway_addresses[0].public_ip') }}"
+# vpc_nat_gateway_cidrs: "{{ vpc_nat_gateway_fact | json_query('result[].nat_gateway_addresses[0].public_ip') |
+# map('regex_replace', '(.*)', '\\1/32') | list }}"
+- name: Get NAT gateways for VPC
+  local_action:
+    module: ec2_vpc_nat_gateway_facts
+    region: "{{ aws_region }}"
+    filters:
+      vpc-id: "{{ vpc_fact }}"
+      state: ['available']
+  register: vpc_nat_gateway_fact
+  become: false
+  tags:
+    - always

@@ -1,0 +1,9 @@
+---
+# defaults file for ami_ansible
+
+# This is a dict of additional SSH public keys required on the server
+ssh_additonal_public_keys:
+  - username: ansible
+    public_keys:
+      # SSH from jenkins.future-airlines.net
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDEgLLVbf0Ui/eA+EkG76kIyUMvJI6ZbTXIdsLrvE1ddCYaOMdJdCZ+9lzeGc9fnRjIxbcabCq9Z4AG/z9ZTNcwBlfBERBSmV8zvibG8GoibXoeLMcaMW0+jE++ADRr0j5ME5HzHi1aKnSW6UIuRBl/ZYk3oEEH4PsmW3MZzGmLM6j0Vwhu1MYFuYXqKs9snevzY4wygdWhOkD2V0K5ROk1fdLFanBMP+bKYpNu7DeI6Yu83UEY1mLE5bKiH+qsl/GdnWhzSQDfqAf3I4T8+4Irb7Q5fJ+yshfcdzWMxbVRpLmSZGT9OdSM3UZs9qkx13DZ+IWETMfAEAAp6XX1ff2b"

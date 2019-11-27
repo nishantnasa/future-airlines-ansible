@@ -1,0 +1,38 @@
+---
+- name: Get STS token
+  hosts: "{{ hosts }}"
+  connection: local
+  tasks:
+    - name: Assume role for passed account
+      sts_assume_role:
+        region: "{{ aws_region }}"
+        role_arn: "arn:aws:iam::{{ aws_account_id }}:role/assumed-ansible"
+        role_session_name: ansible_assumed_role
+      register: assumed_role
+      when: use_sts
+      tags:
+        - always
+
+    - name: Set environment with AWS creds when available
+      set_fact:
+        my_environment:
+          AWS_ACCESS_KEY_ID: "{{ assumed_role.sts_creds.access_key }}"
+          AWS_SECRET_ACCESS_KEY: "{{ assumed_role.sts_creds.secret_key }}"
+          AWS_SECURITY_TOKEN: "{{ assumed_role.sts_creds.session_token }}"
+      when: assumed_role.skipped is not defined
+      tags:
+        - always
+
+    - name: Set environment blank when no AWS creds
+      set_fact:
+        my_environment: {}
+      when: assumed_role.skipped is defined
+      tags:
+        - always
+
+- name: Deploy infrastructure role
+  hosts: "{{ hosts }}"
+  connection: local
+  roles:
+    - "{{ role_to_deploy }}"
+  environment: "{{ env }}"

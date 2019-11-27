@@ -1,0 +1,24 @@
+---
+ntp_manage_config: true
+ntp_timezone: UTC
+
+channel_list:
+  - techops
+  - fa_booking # future-airlines booking platform
+  - fa_integrations # future-airlines integrations domain
+
+# default ansible_date_time to empty dict in case getting ansible facts is off
+ansible_date_time: {}
+
+# AWS Vars
+aws_region: ap-southeast-2
+aws_key_pair_name: "id_rsa-aws-key-pair-{{ ansible_date_time.year | default('0000') }}{{ ansible_date_time.month | default('00') }}"
+
+# List of AWS accounts - this list is used when creating AMIs to ensure they are shared with the accounts in this list
+aws_account_id_list:
+  # fadev
+  - 762508870528
+
+aws_accounts:
+  fadev:
+    account_id: 762508870528

@@ -1,0 +1,237 @@
+---
+
+#
+# Example: ansible-playbook -i inventories/aws ec2_create_linux_ami.yml
+#          -e "role_to_deploy=ami_ansible env=dev hosts=aws-account-fadev channel=techops"
+# get your latest AMI for ECS with:
+#  - aws ssm get-parameters --names /aws/service/ecs/optimized-ami/amazon-linux/recommended
+# get your latest AMI for Linux at: https://aws.amazon.com/amazon-linux-ami/
+#
+
+- name: AWS AMI Provisioning
+  hosts: "{{ hosts }}"
+  connection: local
+  gather_facts: true  # We need to gather facts to correctly work out the aws_key_pair_name var
+  vars:
+    # device_name may need to be overridden for certain OS I.e. CentOS
+    device_name: /dev/xvda
+    ami_selection_map:
+      "1": "amzn2-ami-hvm-*-x86_64-gp2"
+      "2": "amzn2-ami-ecs-hvm-*-x86_64-ebs"
+      "3": "amzn-ami-hvm-*-x86_64-gp2"
+      "4": "amzn-ami-*-amazon-ecs-optimized"
+  vars_prompt:
+    - name: ami_selection
+      prompt: "What AMI ID do you want to base this image on? \n
+                1. Latest Amazon Linux 2 AMI (x86_64 gp2) \n
+                2. Latest Amazon Linux 2 ECS Optimized AMI (x86_64 gp2) [default] \n
+                3. Latest Amazon Linux AMI (x86_64 gp2) \n
+                4. Latest Amazon Linux ECS Optimized AMI (x86_64 gp2) \n
+                5. Other (enter full AMI ID) \n\n
+              Selection"
+      default: 2
+      private: false
+  tasks:
+    - name: Assume role for passed account
+      sts_assume_role:
+        region: "{{ aws_region }}"
+        role_arn: "arn:aws:iam::{{ aws_account_id }}:role/assumed-ansible"
+        role_session_name: ansible_assumed_role
+      register: assumed_role
+      tags:
+        - always
+
+    - name: Set environment with AWS creds when available
+      set_fact:
+        my_environment:
+          AWS_ACCESS_KEY_ID: "{{ assumed_role.sts_creds.access_key }}"
+          AWS_SECRET_ACCESS_KEY: "{{ assumed_role.sts_creds.secret_key }}"
+          AWS_SECURITY_TOKEN: "{{ assumed_role.sts_creds.session_token }}"
+      when: assumed_role.skipped is not defined
+      tags:
+        - always
+
+    - name: Set environment blank when no AWS creds
+      set_fact:
+        my_environment: {}
+      when: assumed_role.skipped is defined
+      tags:
+        - always
+
+    - name: Get AMI facts based on selection
+      ec2_ami_facts:
+        filters:
+          name: "{{ ami_selection_map[ami_selection] }}"
+      when: ami_selection == '1' or ami_selection == '2' or ami_selection == '3' or ami_selection == '4'
+      register: ami_facts
+
+    - name: Set AMI ID from facts
+      set_fact:
+        ami_id: "{{ (ami_facts.images | sort(attribute='creation_date'))[-1].image_id }}"
+      when: ami_selection == '1' or ami_selection == '2' or ami_selection == '3' or ami_selection == '4'
+
+    - name: Set AMI ID from user selection
+      set_fact:
+        ami_id: "{{ ami_selection }}"
+      when: ami_selection != '1' and ami_selection != '2' and ami_selection != '3' and ami_selection != '4'
+
+    - name: Get vars for environment
+      include_tasks:
+        get_env_vars_channel.yml
+
+    - name: Security group
+      ec2_group:
+        region: "{{ aws_region }}"
+        name: sec-temp-ami
+        description: Temporary security group for AMI build
+        vpc_id: "{{ vpc_fact }}"
+        purge_rules: true
+        rules:
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: "{{ ansible_default_ipv4.address }}/32"
+            rule_desc: SSH access for Ansible server
+      register: sec_group
+
+    ### IAM role and policy
+
+    - name: IAM role
+      iam_role:
+        name: "{{ env }}-ami-create-role"
+        assume_role_policy_document: "{ \"Version\": \"2012-10-17\",
+                                      \"Statement\": [ { \"Sid\": \"\", \"Effect\": \"Allow\",
+                                      \"Principal\": { \"Service\": \"ec2.amazonaws.com\" },
+                                      \"Action\": \"sts:AssumeRole\" } ]}"
+        state: present
+      register: iam_role
+
+    - name: IAM policy
+      iam_policy:
+        iam_type: role
+        iam_name: "{{ iam_role.iam_role.role_name }}"
+        policy_name: "policy-{{ env }}-ami-role"
+        policy_json: "{ \"Version\": \"2012-10-17\",
+                      \"Statement\": [ { \"Effect\": \"Allow\", \"Action\": \"ec2:Describe*\",
+                      \"Resource\": \"*\" }, { \"Effect\": \"Allow\", \"Action\": [ \"s3:ListAllMyBuckets\",
+                      \"s3:ListBucket\",\"s3:GetBucketLocation\" ],
+                      \"Resource\": \"*\" }  ] }"
+        state: present
+
+    - name: Wait 15 seconds for IAM role to be propagated
+      pause:
+        seconds: 15
+      when: iam_role.changed
+
+    - name: Start EC2 instance from AWS AMI
+      ec2_instance:
+        image_id: "{{ ami_id }}"
+        instance_role: "{{ iam_role.iam_role.role_name }}"
+        instance_type: "{{ instance_type | default('t2.micro') }}"
+        key_name: "{{ aws_key_pair_name }}"
+        filters:
+          tag:Name: "temp_instance_for_ami_creation_{{ ansible_date_time.iso8601 }}"
+        network:
+          assign_public_ip: false
+        security_group: sec-temp-ami
+        region: "{{ aws_region }}"
+        tags:
+          Env: "{{ env }}"
+          Name: "temp_instance_for_ami_creation_{{ ansible_date_time.iso8601 }}"
+          RoleToDeploy: "{{ role_to_deploy }}"
+        user_data: "{{ lookup('file', 'playbook_files/cloud-config') }}"
+        vpc_subnet_id: "{{ (vpc_subnet_protected_fact.subnets | sort(attribute='availability_zone'))[0].id }}"
+        wait: true
+      register: ec2
+
+    - name: Add instance to host group
+      local_action:
+        module: add_host
+        hostname: "{{ item.private_ip_address }}"
+        groupname: launched
+      with_items: "{{ ec2.instances }}"
+
+    - name: Wait for SSH
+      local_action:
+        module: wait_for
+        host: "{{ item.private_ip_address }}"
+        port: 22
+        delay: 60
+        timeout: 320
+        state: started
+      with_items: "{{ ec2.instances }}"
+
+    - name: Wait another 10 seconds for cloud-init
+      pause:
+        seconds: 10
+
+- name: Configure instance
+  hosts: launched
+  remote_user: ec2-user
+  become: true
+  gather_facts: true
+  roles:
+    - {role: "{{ role_to_deploy }}" }
+
+- name: Create AMI
+  hosts: "{{ hosts }}"
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Stop instance
+      ec2:
+        region: "{{ aws_region }}"
+        instance_ids: "{{ ec2.instances[0].instance_id }}"
+        state: stopped
+        wait: true
+
+    - name: Create AMI
+      ec2_ami:
+        region: "{{ aws_region }}"
+        instance_id: "{{ ec2.instances[0].instance_id }}"
+        wait: true
+        name: "ql-{{ role_to_deploy }}-{{ ansible_date_time.iso8601_micro|replace(\":\", \"-\") }}"
+        launch_permissions:
+          user_ids: "{{ aws_account_id_list }}"
+      register: ami
+
+    - name: Tag AMI
+      ec2_tag:
+        region: "{{ aws_region }}"
+        resource: "{{ ami.image_id }}"
+        state: present
+      args:
+        tags:
+          AnsibleRole: "{{ role_to_deploy }}"
+          Env: "{{ env | default('') }}"
+
+- name: Destroy EC2 instance used for AMI creation
+  hosts: "{{ hosts }}"
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Destroy EC2 instance
+      ec2:
+        region: "{{ aws_region }}"
+        instance_ids: "{{ ec2.instances[0].instance_id }}"
+        wait: true
+        state: absent
+
+    - debug:
+        msg: "AMI creation complete. AMI ID: {{ ami.image_id }}"
+
+    - name: IAM policy
+      iam_policy:
+        iam_type: role
+        iam_name: "{{ iam_role.iam_role.role_name }}"
+        policy_name: "policy-{{ env | default('mgt') }}-ami-role"
+        state: absent
+
+    - name: IAM role
+      iam_role:
+        name: "{{ iam_role.iam_role.role_name }}"
+        assume_role_policy_document: "{ \"Version\": \"2012-10-17\",
+                                      \"Statement\": [ { \"Sid\": \"\", \"Effect\": \"Allow\",
+                                      \"Principal\": { \"Service\": \"ec2.amazonaws.com\" },
+                                      \"Action\": \"sts:AssumeRole\" } ]}"
+        state: absent

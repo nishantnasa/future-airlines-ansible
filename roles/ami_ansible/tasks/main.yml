@@ -1,0 +1,38 @@
+---
+# tasks file for ami_ansible
+
+- name: Additional SSH public keys
+  authorized_key:
+    user: "{{ item.0.username }}"
+    key: "{{ item.1 }}"
+  loop: "{{ ssh_additonal_public_keys | subelements('public_keys') }}"
+
+# Make root add the ansible keys as part of the bash profile
+- name: Add ssh agent start to bash profile
+  lineinfile:
+    dest: /root/.bash_profile
+    line: "eval $(ssh-agent)"
+    state: present
+
+# Add necessary hosts file entries for inventory
+- name: Write special localhost entries to hosts file
+  lineinfile:
+    dest: /etc/hosts
+    line: "{{ item }}"
+  with_items:
+    - "127.0.0.1     localhost-aws-account-fadev"
+
+- name: Create .aws directory for ansible
+  file:
+    path: /home/ansible/.aws
+    state: directory
+    owner: ansible
+    group: sysops
+    mode: 0755
+
+- name: Copy aws config
+  copy:
+    src: aws_config
+    dest: /home/ansible/.aws/config
+    owner: ansible
+    group: sysops

@@ -1,0 +1,12 @@
+# Note here that we have appended the environment name to the end of 'localhost'
+# This is to overcome the Ansible "feature" that loads ALL group vars of a particular host
+# Each localhost-env entry has a corresponding entry in the ansible server /etc/hosts file.
+
+[aws-account-fadev]
+localhost-aws-account-fadev
+
+[aws-account-fadev:vars]
+ansible_python_interpreter=/usr/bin/python3
+
+[local]
+localhost

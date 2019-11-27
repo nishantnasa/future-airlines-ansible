@@ -1,0 +1,7 @@
+---
+- name: Deploy role to host(s)
+  hosts: "{{ hosts }}"
+  gather_facts: true
+  become: true
+  roles:
+    - "{{ role_to_deploy }}"

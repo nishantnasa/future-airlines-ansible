@@ -1,0 +1,57 @@
+---
+# tasks file for ansible
+
+### Install Ansible and related packages
+
+- name: Install devel packages (required for kerberos and pykerberos pip packages below)
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - gcc
+    - python3-devel
+
+- name: Ensure EPEL repo present
+  yum:
+    name: epel-release
+    state: present
+
+- name: Ensure Ansible dependencies present (Ansible installed via pip later)
+  yum:
+    name:
+      - sshpass
+      - python-dateutil
+      - git
+    state: latest
+    enablerepo: epel
+
+- name: Install Ansible
+  pip:
+    executable: pip3
+    name: ansible
+    state: present
+
+- name: Ensure Ansible pip dependencies present
+  pip:
+    executable: pip3
+    name:
+      - boto
+      - boto3
+      - credstash
+      - edgegrid-python
+      - jinja2
+      - ansible-dotdiff
+    state: latest
+
+- name: Remove devel packages
+  yum:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - gcc
+    - python3-devel
+    - glibc-devel
+    - glibc-headers
+    - kernel-headers
+  retries: 3
+  ignore_errors: true

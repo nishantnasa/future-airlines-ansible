@@ -1,0 +1,20 @@
+---
+- name: AWS key pair provisioning
+  hosts: local
+  connection: local
+  gather_facts: true
+  tasks:
+    - name: Create SSH key pair for ansible user
+      user:
+        name: ansible
+        generate_ssh_key: true
+        ssh_key_bits: 4096
+        ssh_key_file: ".ssh/{{ aws_key_pair_name }}"
+      register: user
+
+    - name: Create AWS key pair
+      ec2_key:
+        region: "{{ aws_region }}"
+        name: "{{ aws_key_pair_name }}"
+        key_material: "{{ user.ssh_public_key }}"
+        state: present
