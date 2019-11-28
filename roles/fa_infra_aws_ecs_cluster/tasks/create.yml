@@ -3,51 +3,13 @@
 
 ### Vars
 
-- fail:
-    msg: New clusters can not be deployed in this account
-  when: aws_account_name == "intelligent-pathways-qantas-lsl"
-
 - name: Get AWS vars
   include_tasks:
     ../../../get_env_vars_channel.yml
-  when: aws_account_name != "intelligent-pathways-qantas-lsl"
   tags:
     - always
 
-- name: manage ec2_vols
-  include_role:
-    name: fa_infra_aws_ec2_vol
-  when: create_or_destroy == "create"
-
-- name: Get VPC facts for old VPC
-  local_action:
-    module: ec2_vpc_net_facts
-    region: "{{ aws_region }}"
-    filters:
-      "tag:Env": "{{ env }}"
-      "tag:Channel": old
-  register: vpc_old_fact
-  tags:
-    - always
-
-- name: Include tasks to get VPC facts used for qlstg nginx-integration security group
-  include_tasks: gather_cross_account_vpc_facts.yml
-  when:
-    - aws_account_name == 'qlstg'
-    - cluster_id == 'nginx'
-    - type_prefix == 'loy-int'
-  tags:
-    - always
-
-- name: Include tasks to get VPC facts used for nginx-integration security group (either qlstg or qlprd)
-  include_tasks: gather_account_vpc_facts.yml
-  when:
-    - cluster_id == 'nginx'
-    - type_prefix == 'loy-int'
-  tags:
-    - always
-
-### Use public IP when public subnet OR IP account
+### Use public IP when public subnet
 
 - name:
   set_fact:
@@ -111,18 +73,6 @@
   tags:
     - always
 
-- name: Get VPC facts for lsl VPC
-  local_action:
-    module: ec2_vpc_net_facts
-    region: "{{ aws_region }}"
-    filters:
-      "tag:Env": "{{ env }}"
-      "tag:Channel": lsl
-  register: vpc_lsl_fact
-  when: require_lsl_vpc_facts
-  tags:
-    - always
-
 ### IAM role and policy
 
 - name: IAM role
@@ -172,39 +122,6 @@
 
 ### Security Group
 
-# This task ensures to get NAT Gateway IPs management account and use it on ECS Instance. -TECHOPS-3181
-
-- name: Assume role for qlmgt account so we can get IPs of NAT Gateways
-  sts_assume_role:
-    region: "{{ aws_region }}"
-    role_arn: "arn:aws:iam::113053657575:role/assumed-ansible"
-    role_session_name: qlmgt_nat_assumed_role
-  register: qlmgt_nat_assumed_role
-  when: use_sts
-  tags:
-    - always
-
-# Gather Facts of NAT Gateways from qlmgt account
-
-- name: Get nat gateways with these specific filters
-  ec2_vpc_nat_gateway_facts:
-    aws_access_key: "{{ qlmgt_nat_assumed_role.sts_creds.access_key }}"
-    aws_secret_key: "{{ qlmgt_nat_assumed_role.sts_creds.secret_key }}"
-    security_token: "{{ qlmgt_nat_assumed_role.sts_creds.session_token }}"
-    region: "{{ aws_region }}"
-    filters:
-      "tag:Channel": "lto"
-      "tag:Env": "mgt"
-  register: mgt_nat_gateways_facts
-  tags:
-    - always
-
-- set_fact:
-    mgt_nat_gateways_cidrs: "{{ mgt_nat_gateways_facts.result | map(attribute='nat_gateway_addresses') |
-      sum(start=[]) | map(attribute='public_ip') | list | join('/32, ') + '/32'}}"
-  tags:
-    - always
-
 
 # The port range defined below is the dynamic ports that ECS use.
 # See http://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_PortMapping.html for details
@@ -247,7 +164,7 @@
     key_name: "{{ aws_key_pair_name }}"
     security_groups:
       - "{{ sec_group_instance.group_id }}"
-      - "sec-{{ channel }}-{{ env }}-restricted-techops"  # Created in fa_infra_aws_common_sec_groups role
+      - "sec-{{ channel }}-{{ env }}-restricted-ssh"
     instance_type: "{{ instance_type }}"
     instance_profile_name: "{{ iam_role.iam_role.role_name }}"
     volumes:

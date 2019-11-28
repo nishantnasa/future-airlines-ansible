@@ -1,9 +1,0 @@
----
-asg_desired_size: 3
-asg_max_size: 6
-sec_group_instance_rules:
-  - proto: tcp
-    from_port: 32768
-    to_port: 60999
-    cidr_ip: "{{ vpc_fact.vpcs.0.cidr_block }}"
-    rule_desc: "Allow traffic to ECS dynamic port range from {{ channel }} VPC"

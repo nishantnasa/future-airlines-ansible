@@ -2,7 +2,7 @@
 # defaults file for fa_infra_aws_ecs_cluster
 
 create_or_destroy: create
-ami_id: ami-0810c299d74b537d0
+ami_id: ami-00bf6a5319a7d03d4
 type: ecscluster
 type_prefix: "{{ channel }}-{{ env }}"
 instance_type: m5.large
@@ -19,8 +19,6 @@ cluster_name: "cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster
 remove_cluster: true
 use_public_ip: false
 
-require_lsl_vpc_facts: false
-
 sec_group_instance_rules:
   - proto: tcp
     from_port: 32768
@@ -30,9 +28,6 @@ sec_group_instance_rules:
 
 extra_tags: []
 
-datadog_tags:
-  - DatadogEnabled: "{% if env in ('prd', 'stg', 'mgt') %}true{% else %}false{% endif %}"
-
 default_tags:
   - EcsClusterName: "{{ cluster_name }}"
   - EcsClusterId: "{{ cluster_id }}"
@@ -40,24 +35,13 @@ default_tags:
   - Env: "{{ env }}"
   - Type: "{{ type }}"
 
-efs_dns:
-  stackstorm: stackstorm.efs.internal.qantasloyalty.net
-  hybris: hybris.efs.internal.qantasloyalty.net
-  sonarqube: sonarqube.efs.internal.qantasloyalty.net
-
-efs_mount_point:
-  stackstorm: /mnt/efs-lto-stackstorm
-  hybris: /mnt/efs-epq-hybris
-  sonarqube: /mnt/efs-lto-mgt-sonarqube
-
-ebs_mount_point:
-  splunk_etc: /mnt/splunk_etc
-  splunk_var: /mnt/splunk_var
-  certbot: /mnt/certbot
-
 user_data: |
   #!/bin/bash
 
   echo "ECS_CLUSTER=cluster-{{ channel }}-{{ env }}-{{ deploy_in_subnet }}-{{ cluster_id }}" >> /etc/ecs/ecs.config
   echo "ECS_AVAILABLE_LOGGING_DRIVERS=[\"splunk\",\"syslog\",\"fluentd\",\"json-file\"]" >> /etc/ecs/ecs.config
   echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
+
+  docker plugin install rexray/s3fs:latest S3FS_REGION=ap-southeast-2 S3FS_OPTIONS="allow_other,iam_role=auto,umask=000" LIBSTORAGE_INTEGRATION_VOLUME_OPERATIONS_MOUNT_ROOTPATH=/ LINUX_VOLUME_ROOTPATH=/ --grant-all-permissions
+  docker plugin install rexray/ebs EBS_REGION={{ aws_region }} --grant-all-permissions
+  docker plugin install rexray/efs EFS_REGION={{ aws_region }} --grant-all-permissions

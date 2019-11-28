@@ -4,8 +4,7 @@ Used to create AWS ECS cluster infrastructure. This includes an ASG for the ECS 
 
 ## Requirements
 
-You need to define a default AMI ID to use. This should be an AMI that has the ECS agent installed. Usually this AMI will of
-been built with the fa_ecs_host role.
+You need to define a default AMI ID to use. This should be an AMI that has the ECS agent installed.
 
 ## Role Variables
 

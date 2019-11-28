@@ -1,8 +1,0 @@
----
-instance_type: c5.2xlarge
-sec_group_instance_rules:
-  - proto: tcp
-    from_port: 32768
-    to_port: 60999
-    cidr_ip: "0.0.0.0/0"
-    rule_desc: "Allow traffic to ECS dynamic port range from anywhere"
